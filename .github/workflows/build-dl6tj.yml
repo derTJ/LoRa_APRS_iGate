@@ -1,0 +1,38 @@
+name: DL6TJ Build
+
+on:
+    workflow_dispatch:   # manuell per Knopf "Run workflow"
+    push:
+        branches:
+            - main
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+
+            - name: Install PlatformIO Core
+              run: pip install --upgrade platformio
+
+            - name: Build firmware
+              run: pio run -e ttgo-lora32-v21
+
+            - name: Build filesystem image
+              run: pio run --target buildfs -e ttgo-lora32-v21
+
+            - name: Upload firmware
+              uses: actions/upload-artifact@v4
+              with:
+                  name: igate-ttgo-lora32-v21
+                  path: |
+                      .pio/build/ttgo-lora32-v21/firmware.bin
+                      .pio/build/ttgo-lora32-v21/bootloader.bin
+                      .pio/build/ttgo-lora32-v21/partitions.bin
+                      .pio/build/ttgo-lora32-v21/littlefs.bin
+                      .pio/build/ttgo-lora32-v21/spiffs.bin
+                  if-no-files-found: warn
