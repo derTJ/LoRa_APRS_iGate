@@ -72,7 +72,7 @@ namespace OTA_Utils {
             ArduinoOTA.setMdnsEnabled(false);   // mDNS-Eintrag macht oben MDNS.enableArduino()
             ArduinoOTA.begin();
 #else
-            ArduinoOTA.begin(false);
+            ArduinoOTA.begin();                 // aeltere ArduinoOTA-Version ohne Parameter (mDNS-Eintrag setzt sie selbst, oben schon vorbereitet)
 #endif
             Serial.println("ArduinoOTA bereit (Port 3232)");
         }
