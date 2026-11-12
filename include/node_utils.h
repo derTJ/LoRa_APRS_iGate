@@ -8,6 +8,7 @@ namespace NODE_Utils {
 
     void setup();
     void processLoRaPacket(const String& packet);
+    void loop();
     void registerWeb(AsyncWebServer *server);
 
 }

@@ -218,6 +218,7 @@ void loop() {
 
         if (Config.aprs_is.active) APRS_IS_Utils::listenAPRSIS();           // listen received packet from APRSIS
 
+        NODE_Utils::loop();                     // DL6TJ: Bestaetigungen und Befehle fuer Nodes
         STATION_Utils::processOutputPacketBuffer();
 
         #ifdef HAS_EPAPER   // Only consider updating every 10 seconds (when data to show is different from before)
