@@ -350,8 +350,7 @@ namespace NODE_Utils {
             else if (text.startsWith("Status")) { if (NODE_BRIEF_STATUS_TG) chats = 1; }
             else if (text.startsWith("Start") || text.startsWith("OK") || text.startsWith("Test")) chats = 1;
         } else if (node->role == 1) {                                                         // Auto
-            if (text.startsWith("WARN") || text.startsWith("KRITISCH")) { needTg = true; chats = 1; }
-            else if (text.indexOf("Spannungen") >= 0) chats = 1;
+            if (text.startsWith("WARN") || text.startsWith("KRITISCH") || text.startsWith("Start")) { needTg = true; chats = 1; }   // Ereignisse + Start; Routinewerte ("Batterie: x V") gehen nicht nach Telegram
         }
         String tgText = String(node->name) + ": " + text;
 
@@ -450,35 +449,40 @@ namespace NODE_Utils {
                 else msg = "Gespeichert.";
             }
         }
-        String h = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Telegram</title></head><body style='font-family:sans-serif;max-width:520px;margin:20px auto;padding:0 10px'>";
-        h += "<h3>Telegram f&uuml;r Node-Meldungen</h3>";
-        if (msg != "") h += "<p><b>" + msg + "</b></p>";
+        String h = "<!DOCTYPE html><html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><title>Telegram</title><link rel='stylesheet' href='/bootstrap.css'><link rel='icon' href='/favicon.png'>"
+                   "<script>(function(){try{var t=localStorage.getItem('igateTheme');if(!t)t=window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark';var r=document.documentElement;if(t==='night'){r.setAttribute('data-bs-theme','dark');r.setAttribute('data-variant','night');}else{r.setAttribute('data-bs-theme',t);}}catch(e){}})();</script>"
+                   "<style>:root,[data-bs-theme=dark]{--msh-bg:#121417;--msh-panel:#1c2025;--msh-border:#2c333b;--msh-accent:#e23b3b;--msh-dim:#8b949e;--msh-text:#e6edf3}[data-bs-theme=light]{--msh-bg:#fbfcfd;--msh-panel:#fff;--msh-border:#dde3e9;--msh-accent:#cc2b2b;--msh-dim:#5b6671;--msh-text:#1c2127}[data-variant=night]{--msh-bg:#000;--msh-panel:#0d0303;--msh-border:#3a1111;--msh-accent:#ff4242;--msh-dim:#9c4d4d;--msh-text:#ff6b6b}"
+                   "body{background:var(--msh-bg);color:var(--msh-text);font-family:Inter,system-ui,-apple-system,'Segoe UI',Roboto,sans-serif}.tb{background:#b21d1d;height:56px;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid rgba(0,0,0,.25)}[data-variant=night] .tb{background:#8a1717}.tb a{color:#fff;font-weight:600;font-size:1.1rem;text-decoration:none}[data-variant=night] .tb a{color:#000}"
+                   ".wrap{max-width:640px;margin:16px auto;padding:0 12px}.pn{background:var(--msh-panel);border:1px solid var(--msh-border);border-radius:8px;padding:14px 16px;margin-bottom:14px}.pn h3{font-size:1.05rem;margin:0 0 10px}.pn .dim{color:var(--msh-dim);font-size:13px}"
+                   ".pn input,.pn select{background:var(--msh-bg);color:var(--msh-text);border:1px solid var(--msh-border);border-radius:6px;padding:6px 8px;width:100%;margin:2px 0 10px}.pn select{width:auto}.pn code{color:var(--msh-accent)}.bt{background:var(--msh-accent);color:#fff;border:0;border-radius:6px;padding:6px 12px;margin:2px 4px 2px 0}.bt.sec{background:transparent;color:var(--msh-text);border:1px solid var(--msh-border)}</style></head><body>";
+        h += "<div class='tb'><a href='/'>CA2RXU Firmware &rarr; iGate/Digipeater &ndash; Telegram</a></div><div class='wrap'>";
+        h += "<div class='pn'><h3>Telegram f&uuml;r Node-Meldungen</h3>";
+        if (msg != "") h += "<p><b style='color:var(--msh-accent)'>" + msg + "</b></p>";
         h += "<p>Bot-Token: " + String(tgToken != "" ? "gesetzt" : "<i>nicht gesetzt</i>") + "<br>Chat 1: " + (tgChat1 != "" ? esc(tgChat1) : String("<i>nicht gesetzt</i>")) + "<br>Chat 2: " + (tgChat2 != "" ? esc(tgChat2) : String("<i>nicht gesetzt</i>")) + "</p>";
-        h += "<p style='font-size:13px'>Freier Speicher: gr&ouml;&szlig;ter Block " + String((unsigned)ESP.getMaxAllocHeap()) + " B (Telegram braucht &gt; 50000), WLAN: " + String(WiFi.status() == WL_CONNECTED ? "verbunden" : "getrennt") + "</p>";
-        h += "<p style='font-size:12px'>Letzte Versuche:<br>";
+        h += "<p class='dim'>Freier Speicher: gr&ouml;&szlig;ter Block " + String((unsigned)ESP.getMaxAllocHeap()) + " B (Telegram braucht &gt; 50000), WLAN: " + String(WiFi.status() == WL_CONNECTED ? "verbunden" : "getrennt") + "</p>";
+        h += "<p class='dim'>Letzte Versuche:<br>";
         for (int k = 0; k < 6; k++) { int ix = (int)tgLogN - 1 - k; if (ix < 0) break; h += esc(String(tgLog[ix % 6])) + "<br>"; }
         if (tgLogN == 0) h += "<i>noch nichts versucht</i>";
-        h += "</p>";
-        h += "<form method='POST' action='/telegram'>";
-        h += "Bot-Token (leer = unver&auml;ndert)<br><input name='tok' type='password' style='width:100%'><br><br>";
-        h += "Befehls-Geheimwort f&uuml;r die Nodes (" + String(ctrlSecret != "" ? "gesetzt" : "nicht gesetzt") + "; identisch zu CTRL_SECRET im Briefkasten, leer = unver&auml;ndert)<br><input name='sec' type='password' style='width:100%'><br><br>";
-        h += "Chat 1 &ndash; alle Meldungen (leer = unver&auml;ndert)<br><input name='c1' style='width:100%'><br><br>";
-        h += "Chat 2 &ndash; nur &bdquo;Post ist da&ldquo; vom Briefkasten (leer = unver&auml;ndert)<br><input name='c2' style='width:100%'><br><br>";
-        h += "<button type='submit'>Speichern</button> ";
-        h += "<button type='submit' name='test' value='1'>Speichern + Test senden</button> ";
-        h += "<button type='submit' name='clear' value='1'>Alles l&ouml;schen</button></form>";
+        h += "</p></div><div class='pn'><h3>Zugangsdaten</h3><form method='POST' action='/telegram'>";
+        h += "Bot-Token (leer = unver&auml;ndert)<br><input name='tok' type='password'>";
+        h += "Befehls-Geheimwort f&uuml;r die Nodes (" + String(ctrlSecret != "" ? "gesetzt" : "nicht gesetzt") + "; identisch zu CTRL_SECRET im Briefkasten, leer = unver&auml;ndert)<br><input name='sec' type='password'>";
+        h += "Chat 1 &ndash; alle Meldungen (leer = unver&auml;ndert)<br><input name='c1'>";
+        h += "Chat 2 &ndash; nur &bdquo;Post ist da&ldquo; vom Briefkasten (leer = unver&auml;ndert)<br><input name='c2'>";
+        h += "<button class='bt' type='submit'>Speichern</button>";
+        h += "<button class='bt sec' type='submit' name='test' value='1'>Speichern + Test senden</button> ";
+        h += "<button class='bt sec' type='submit' name='clear' value='1'>Alles l&ouml;schen</button></form></div>";
 
-        h += "<hr><h3>Befehl an einen Node</h3>";
-        h += "<p style='font-size:13px'>Wird nach der n&auml;chsten Start-/Status-/Post-Meldung des Nodes in dessen Befehlsfenster gesendet. "
+        h += "<div class='pn'><h3>Befehl an einen Node</h3>";
+        h += "<p class='dim'>Wird nach der n&auml;chsten Start-/Status-/Post-Meldung des Nodes in dessen Befehlsfenster gesendet. "
              "Briefkasten: <code>TX=6</code> <code>CHK=5</code> <code>ST=360</code> <code>STE=30</code> <code>NS=22</code> <code>NE=6</code> <code>RE=10</code> <code>EV=19</code> <code>SCH=1</code> <code>REM=0</code> <code>WIN=60</code> <code>TEST</code> <code>TEST=300</code> <code>DEF</code> <code>?</code> &ndash; mehrere mit Leerzeichen trennen.</p>";
         for (size_t i = 0; i < NODE_COUNT; i++) {
             if (cmds[i].active) h += String("<p>Vorgemerkt f&uuml;r ") + NODE_LIST[i].name + ": <code>" + esc(String(cmds[i].text)) + "</code>" + (cmds[i].stage == 1 ? " (wird gesendet)" : " (wartet)") + "</p>";
         }
         h += "<form method='POST' action='/telegram'><select name='node'>";
         for (size_t i = 0; i < NODE_COUNT; i++) h += String("<option value='") + String((int)i) + "'>" + NODE_LIST[i].name + " (" + NODE_LIST[i].call + ")</option>";
-        h += "</select> <input name='nodecmd' placeholder='z. B. TX=6' style='width:55%'> <button type='submit'>Vormerken</button></form>";
-        h += "<p style='font-size:13px'>Leeres Feld + Vormerken l&ouml;scht einen vorgemerkten Befehl. Die Antwort des Nodes kommt als Telegram-Nachricht.</p>";
-        h += "</body></html>";
+        h += "</select> <input name='nodecmd' placeholder='z. B. TX=6' style='width:50%'> <button class='bt' type='submit'>Vormerken</button></form>";
+        h += "<p class='dim'>Leeres Feld + Vormerken l&ouml;scht einen vorgemerkten Befehl. Die Antwort des Nodes kommt als Telegram-Nachricht.</p>";
+        h += "</div></div></body></html>";
         request->send(200, "text/html", h);
     }
 
