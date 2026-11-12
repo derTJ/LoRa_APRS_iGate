@@ -11,6 +11,7 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
+#include <stdarg.h>
 #include "mbedtls/md.h"
 #include "configuration.h"
 #include "station_utils.h"
@@ -63,6 +64,21 @@ namespace NODE_Utils {
     static Entry            entries[16];
     static Cmd              cmds[NODE_COUNT];
 
+    // kleines Protokoll der letzten Telegram-Versuche, sichtbar auf der Seite /telegram (kein Serial-Monitor noetig)
+    static char tgLog[6][72];
+    static uint8_t tgLogN = 0;
+    static void tgNote(const char *fmt, ...) {
+        char b[72];
+        va_list ap;
+        va_start(ap, fmt);
+        vsnprintf(b, sizeof(b), fmt, ap);
+        va_end(ap);
+        uint32_t s = millis() / 1000;
+        snprintf(tgLog[tgLogN % 6], sizeof(tgLog[0]), "%lu:%02lu:%02lu %s", (unsigned long)(s / 3600), (unsigned long)((s / 60) % 60), (unsigned long)(s % 60), b);
+        tgLogN++;
+        Utils::println(String("Node-Telegram: ") + b);
+    }
+
     static void loadCredentials() {
         Preferences p;
         p.begin("nodetg", true);
@@ -96,9 +112,10 @@ namespace NODE_Utils {
         if (https.begin(client, url)) {
             int code = https.GET();
             ok = (code == 200);
-            if (!ok) Utils::println("Node-Telegram: HTTP " + String(code));
+            if (!ok) tgNote("HTTP %d (Chat %s)", code, chat.c_str());
             https.end();
         }
+        else tgNote("Verbindung zu Telegram nicht moeglich");
         return ok;
     }
 
@@ -109,19 +126,19 @@ namespace NODE_Utils {
             String text = String(item.text);
             bool d1 = !(item.chats & 1), d2 = !(item.chats & 2);
             if (!d1 && (tgToken == "" || tgChat1 == "")) {                       // Pflicht-Chat fehlt: gar nicht erst versuchen
-                Utils::println("Node-Telegram: nicht eingerichtet (Seite /telegram)");
+                tgNote("nicht eingerichtet (Token/Chat 1 fehlt)");
                 if (item.slot < 16) entries[item.slot].state = ST_FAILED;
                 continue;
             }
             for (int tries = 0; tries < 3 && !(d1 && d2); tries++) {
                 if (tries > 0) vTaskDelay(pdMS_TO_TICKS(8000));
-                if (WiFi.status() != WL_CONNECTED) continue;
-                if (ESP.getMaxAllocHeap() < 50000) { Utils::println("Node-Telegram: zu wenig Speicher, spaeter erneut"); continue; }
+                if (WiFi.status() != WL_CONNECTED) { tgNote("kein WLAN"); continue; }
+                if (ESP.getMaxAllocHeap() < 50000) { tgNote("zu wenig Speicher (groesster Block %u B)", (unsigned)ESP.getMaxAllocHeap()); continue; }
                 if (!d1) d1 = tgSendOne(tgChat1, text, true);
                 if (!d2) d2 = tgSendOne(tgChat2, text, false);
             }
             bool ok = d1 && d2;
-            if (!ok) Utils::println("Node-Telegram: Meldung nicht zugestellt");
+            if (!ok) tgNote("Meldung NICHT zugestellt"); else tgNote("Meldung zugestellt");
             if (item.slot < 16) entries[item.slot].state = ok ? ST_DONE : ST_FAILED;
         }
     }
@@ -134,7 +151,7 @@ namespace NODE_Utils {
         item.chats = chats;
         item.slot = slot;
         if (xQueueSend(tgQueue, &item, 0) != pdTRUE) {
-            Utils::println("Node-Telegram: Warteschlange voll");
+            tgNote("Warteschlange voll");
             if (slot < 16) entries[slot].state = ST_FAILED;
         }
     }
@@ -436,6 +453,11 @@ namespace NODE_Utils {
         h += "<h3>Telegram f&uuml;r Node-Meldungen</h3>";
         if (msg != "") h += "<p><b>" + msg + "</b></p>";
         h += "<p>Bot-Token: " + String(tgToken != "" ? "gesetzt" : "<i>nicht gesetzt</i>") + "<br>Chat 1: " + (tgChat1 != "" ? esc(tgChat1) : String("<i>nicht gesetzt</i>")) + "<br>Chat 2: " + (tgChat2 != "" ? esc(tgChat2) : String("<i>nicht gesetzt</i>")) + "</p>";
+        h += "<p style='font-size:13px'>Freier Speicher: gr&ouml;&szlig;ter Block " + String((unsigned)ESP.getMaxAllocHeap()) + " B (Telegram braucht &gt; 50000), WLAN: " + String(WiFi.status() == WL_CONNECTED ? "verbunden" : "getrennt") + "</p>";
+        h += "<p style='font-size:12px'>Letzte Versuche:<br>";
+        for (int k = 0; k < 6; k++) { int ix = (int)tgLogN - 1 - k; if (ix < 0) break; h += esc(String(tgLog[ix % 6])) + "<br>"; }
+        if (tgLogN == 0) h += "<i>noch nichts versucht</i>";
+        h += "</p>";
         h += "<form method='POST' action='/telegram'>";
         h += "Bot-Token (leer = unver&auml;ndert)<br><input name='tok' type='password' style='width:100%'><br><br>";
         h += "Befehls-Geheimwort f&uuml;r die Nodes (" + String(ctrlSecret != "" ? "gesetzt" : "nicht gesetzt") + "; identisch zu CTRL_SECRET im Briefkasten, leer = unver&auml;ndert)<br><input name='sec' type='password' style='width:100%'><br><br>";
