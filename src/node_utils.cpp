@@ -350,7 +350,8 @@ namespace NODE_Utils {
             else if (text.startsWith("Status")) { if (NODE_BRIEF_STATUS_TG) chats = 1; }
             else if (text.startsWith("Start") || text.startsWith("OK") || text.startsWith("Test")) chats = 1;
         } else if (node->role == 1) {                                                         // Auto
-            if (text.startsWith("WARN") || text.startsWith("KRITISCH") || text.startsWith("Start")) { needTg = true; chats = 1; }   // Ereignisse + Start; Routinewerte ("Batterie: x V") gehen nicht nach Telegram
+            if (text.startsWith("WARN") || text.startsWith("KRITISCH")) { needTg = true; chats = 1; }   // Ereignisse: ACK erst nach Zustellung
+            else if (text.startsWith("Start")) chats = 1;                                            // Start: sofort bestaetigen, Telegram folgt; Routinewerte ("Batterie: x V") gehen nicht nach Telegram
         }
         String tgText = String(node->name) + ": " + text;
 
