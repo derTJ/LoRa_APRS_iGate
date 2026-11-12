@@ -11,6 +11,7 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
+#include "mbedtls/md.h"
 #include "configuration.h"
 #include "station_utils.h"
 #include "node_settings.h"
@@ -50,13 +51,14 @@ namespace NODE_Utils {
         uint8_t  stage;         // 0 = wartet auf das Befehlsfenster des Nodes, 1 = wird gesendet
         uint8_t  tries;
         uint16_t id;
+        unsigned long cnt;
         uint32_t nextMs;
         uint32_t untilMs;
         char     text[64];
     };
 
     static QueueHandle_t    tgQueue     = nullptr;
-    static String           tgToken, tgChat1, tgChat2;
+    static String           tgToken, tgChat1, tgChat2, ctrlSecret;
     static Entry            entries[16];
     static Cmd              cmds[NODE_COUNT];
 
@@ -66,6 +68,7 @@ namespace NODE_Utils {
         tgToken = p.getString("tok", "");
         tgChat1 = p.getString("c1", "");
         tgChat2 = p.getString("c2", "");
+        ctrlSecret = p.getString("sec", "");
         p.end();
     }
 
@@ -182,11 +185,38 @@ namespace NODE_Utils {
         return 0.0f;
     }
 
-    // ---- Befehle an Nodes ----
+    // ---- Befehle an Nodes (abgesichert: "<Befehle> <Zaehler> <Code>", Code = HMAC-SHA256 mit dem Geheimwort, wie T3/T-Deck) ----
+    static void ctrlMac(const char *src, const char *cmd, unsigned long cnt, char *out9) {
+        char msg[120];
+        snprintf(msg, sizeof(msg), "%s|%s|%lu", src, cmd, cnt);
+        uint8_t h[32];
+        mbedtls_md_context_t ctx;
+        mbedtls_md_init(&ctx);
+        mbedtls_md_setup(&ctx, mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), 1);
+        mbedtls_md_hmac_starts(&ctx, (const uint8_t *)ctrlSecret.c_str(), ctrlSecret.length());
+        mbedtls_md_hmac_update(&ctx, (const uint8_t *)msg, strlen(msg));
+        mbedtls_md_hmac_finish(&ctx, h);
+        mbedtls_md_free(&ctx);
+        for (int i = 0; i < 4; i++) snprintf(out9 + 2 * i, 3, "%02x", h[i]);
+    }
+
     static void sendCmdNow(int idx) {
         Cmd &c = cmds[idx];
+        if (ctrlSecret == "") { c.active = false; tgQueueText(String("Befehl an ") + NODE_LIST[idx].name + " nicht gesendet: Geheimwort fehlt (Seite /telegram)", 1); return; }
+        if (c.tries == 0) {                                                                // neuer Versuch mit neuem Zaehler, Wiederholungen behalten ihn
+            Preferences p;
+            p.begin("nodetg", false);
+            String key = "cnt" + String(idx);
+            c.cnt = p.getULong(key.c_str(), 0) + 1;
+            p.putULong(key.c_str(), c.cnt);
+            p.end();
+        }
+        char mac[12];
+        String me = myCall();
+        ctrlMac(me.c_str(), c.text, c.cnt, mac);
         c.id = 1000 + (esp_random() % 9000);
-        String pkt = APRSPacketLib::generateMessagePacket(myCall(), "APLRG1", "RFONLY", String(NODE_LIST[idx].call), String(c.text)) + "{" + String(c.id);
+        String body = String(c.text) + " " + String(c.cnt) + " " + String(mac);
+        String pkt = APRSPacketLib::generateMessagePacket(me, "APLRG1", "NOGATE", String(NODE_LIST[idx].call), body) + "{" + String(c.id);
         STATION_Utils::addToOutputPacketBuffer(pkt);
         c.tries++;
         c.nextMs = millis() + 10000UL;
@@ -225,6 +255,24 @@ namespace NODE_Utils {
             if (cmds[idx].active && cmds[idx].stage == 1 && text == "ack" + String(cmds[idx].id)) {
                 cmds[idx].active = false;
                 Utils::println(String("Node-Befehl bestaetigt von ") + node->name);
+            }
+            return;
+        }
+
+        if (text.startsWith("err")) {                                                         // Fehlermeldung des Nodes auf unseren Befehl
+            if (cmds[idx].active && cmds[idx].stage == 1) {
+                if (text.startsWith("err cnt ")) {                                            // Zaehler abgleichen und sofort neu senden
+                    Preferences p;
+                    p.begin("nodetg", false);
+                    String key = "cnt" + String(idx);
+                    p.putULong(key.c_str(), strtoul(text.c_str() + 8, nullptr, 10));
+                    p.end();
+                    cmds[idx].tries = 0;
+                    cmds[idx].nextMs = millis() + 1500UL;
+                } else if (text.startsWith("err auth")) {
+                    cmds[idx].active = false;
+                    tgQueueText(String("Befehl an ") + node->name + " abgelehnt: Geheimwort stimmt nicht", 1);
+                }
             }
             return;
         }
@@ -323,7 +371,9 @@ namespace NODE_Utils {
                 String t = request->getParam("nodecmd", true)->value();
                 t.trim();
                 if (n >= 0 && n < (int)NODE_COUNT) {
+                    t.replace(' ', ',');
                     if (t == "") { cmds[n].active = false; msg = "Befehl gelöscht."; }
+                    else if (ctrlSecret == "") msg = "Erst das Befehls-Geheimwort speichern.";
                     else { memset(&cmds[n], 0, sizeof(Cmd)); t.substring(0, sizeof(cmds[n].text) - 1).toCharArray(cmds[n].text, sizeof(cmds[n].text)); cmds[n].active = true; msg = "Befehl vorgemerkt; wird nach der nächsten Meldung des Nodes zugestellt."; }
                 }
             } else {
@@ -332,7 +382,8 @@ namespace NODE_Utils {
                 if (request->hasParam("tok", true) && request->getParam("tok", true)->value() != "") p.putString("tok", request->getParam("tok", true)->value());
                 if (request->hasParam("c1", true) && request->getParam("c1", true)->value() != "")   p.putString("c1",  request->getParam("c1", true)->value());
                 if (request->hasParam("c2", true) && request->getParam("c2", true)->value() != "")   p.putString("c2",  request->getParam("c2", true)->value());
-                if (request->hasParam("clear", true)) { p.remove("tok"); p.remove("c1"); p.remove("c2"); }
+                if (request->hasParam("sec", true) && request->getParam("sec", true)->value() != "") p.putString("sec", request->getParam("sec", true)->value());
+                if (request->hasParam("clear", true)) { p.remove("tok"); p.remove("c1"); p.remove("c2"); p.remove("sec"); }
                 p.end();
                 loadCredentials();
                 if (request->hasParam("test", true)) { tgQueueText("Test vom iGate " + Config.callsign, 3); msg = "Testnachricht in der Warteschlange."; }
@@ -345,6 +396,7 @@ namespace NODE_Utils {
         h += "<p>Bot-Token: " + String(tgToken != "" ? "gesetzt" : "<i>nicht gesetzt</i>") + "<br>Chat 1: " + (tgChat1 != "" ? esc(tgChat1) : String("<i>nicht gesetzt</i>")) + "<br>Chat 2: " + (tgChat2 != "" ? esc(tgChat2) : String("<i>nicht gesetzt</i>")) + "</p>";
         h += "<form method='POST' action='/telegram'>";
         h += "Bot-Token (leer = unver&auml;ndert)<br><input name='tok' type='password' style='width:100%'><br><br>";
+        h += "Befehls-Geheimwort f&uuml;r die Nodes (" + String(ctrlSecret != "" ? "gesetzt" : "nicht gesetzt") + "; identisch zu CTRL_SECRET im Briefkasten, leer = unver&auml;ndert)<br><input name='sec' type='password' style='width:100%'><br><br>";
         h += "Chat 1 &ndash; alle Meldungen (leer = unver&auml;ndert)<br><input name='c1' style='width:100%'><br><br>";
         h += "Chat 2 &ndash; nur &bdquo;Post ist da&ldquo; vom Briefkasten (leer = unver&auml;ndert)<br><input name='c2' style='width:100%'><br><br>";
         h += "<button type='submit'>Speichern</button> ";
