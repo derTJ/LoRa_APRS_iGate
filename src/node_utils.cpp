@@ -336,7 +336,10 @@ namespace NODE_Utils {
         }
 
         // Befehlsfenster: der Node hat gerade gemeldet (Start/Status) und hoert jetzt eine Weile zu
-        if (text.startsWith("Start") || text.startsWith("Status")) armCmd(idx, text.startsWith("Start"));
+        if (text.startsWith("Fenster")) {                                                      // der Node lauscht jetzt: vorgemerkte Befehle / Zeitabgleich senden
+            armCmd(idx, text.indexOf("Start") > 0);
+            return;
+        }
 
         // Welche Meldung geht nach Telegram, braucht sie eine Bestaetigung erst NACH der Zustellung?
         bool needTg = false;                    // Telegram Pflicht -> ACK erst nach Zustellung
@@ -396,7 +399,6 @@ namespace NODE_Utils {
             if (en.state == ST_DONE && !en.acked) {
                 en.acked = true;
                 sendAck(en.sender, en.payload);
-                if (en.armAfterAck) armCmd(en.node, false);                                          // der Node oeffnet nach dem ACK sein Befehlsfenster
             }
         }
         for (size_t i = 0; i < NODE_COUNT; i++) {                                             // Befehle zustellen / aufgeben
