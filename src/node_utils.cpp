@@ -65,7 +65,7 @@ namespace NODE_Utils {
     static Cmd              cmds[NODE_COUNT];
 
     // kleines Protokoll der letzten Telegram-Versuche, sichtbar auf der Seite /telegram (kein Serial-Monitor noetig)
-    static char tgLog[6][72];
+    static char tgLog[6][100];
     static uint8_t tgLogN = 0;
     static void tgNote(const char *fmt, ...) {
         char b[72];
@@ -278,9 +278,8 @@ namespace NODE_Utils {
         if (wantTime && !(c.active && c.stage == 1)) {                  // Uhrzeit voranstellen (zusammen mit einem vorgemerkten Befehl)
             if (!c.active) { memset(&c, 0, sizeof(Cmd)); c.active = true; c.autoOnly = true; }
             if (c.stage == 0 && strstr(c.text, "TIME=") == nullptr) {
-                char tmp[112];
-                snprintf(tmp, sizeof(tmp), "TIME=%ld%s%s", le, c.text[0] ? "," : "", c.text);
-                snprintf(c.text, sizeof(c.text), "%s", tmp);
+                String t = "TIME=" + String(le) + (c.text[0] ? "," : "") + String(c.text);
+                t.substring(0, sizeof(c.text) - 1).toCharArray(c.text, sizeof(c.text));
             }
             lastTimeSyncMs[idx] = millis() ? millis() : 1;
         }
