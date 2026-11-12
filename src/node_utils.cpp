@@ -54,7 +54,8 @@ namespace NODE_Utils {
         unsigned long cnt;
         uint32_t nextMs;
         uint32_t untilMs;
-        char     text[64];
+        char     text[112];
+        bool     autoOnly;      // nur der automatische Zeitabgleich (keine Telegram-Meldung, wenn er nicht ankommt)
     };
 
     static QueueHandle_t    tgQueue     = nullptr;
@@ -185,9 +186,38 @@ namespace NODE_Utils {
         return 0.0f;
     }
 
+    // ---- Uhrzeit fuer die Nodes: lokale Zeit (UTC + Zeitzone + EU-Sommerzeit) als "Sekunden seit 1970" ----
+    static long daysFromCivil(int y, int m, int d) {
+        y -= (m <= 2);
+        long era = (y >= 0 ? y : y - 399) / 400;
+        unsigned yoe = (unsigned)(y - era * 400);
+        unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1;
+        unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        return era * 146097 + (long)doe - 719468;
+    }
+    static long lastSundayUtc(int y, int month) {                 // 01:00 UTC am letzten Sonntag des Monats
+        long d = daysFromCivil(y, month, 31);
+        int wd = (int)((d + 4) % 7);                              // 0 = Sonntag
+        return (d - wd) * 86400L + 3600L;
+    }
+    static bool localEpoch(long &out) {
+        time_t utc = time(nullptr);
+        if (utc < 1700000000L) return false;                      // NTP noch nicht synchron
+        long off = NODE_TZ_BASE_H * 3600L;
+        if (NODE_TZ_EU_DST) {
+            struct tm t;
+            gmtime_r(&utc, &t);
+            int y = t.tm_year + 1900;
+            if (utc >= lastSundayUtc(y, 3) && utc < lastSundayUtc(y, 10)) off += 3600L;
+        }
+        out = (long)utc + off;
+        return true;
+    }
+    static uint32_t lastTimeSyncMs[NODE_COUNT];                   // letzter Zeitabgleich je Node (0 = noch nie seit iGate-Neustart)
+
     // ---- Befehle an Nodes (abgesichert: "<Befehle> <Zaehler> <Code>", Code = HMAC-SHA256 mit dem Geheimwort, wie T3/T-Deck) ----
     static void ctrlMac(const char *src, const char *cmd, unsigned long cnt, char *out9) {
-        char msg[120];
+        char msg[170];
         snprintf(msg, sizeof(msg), "%s|%s|%lu", src, cmd, cnt);
         uint8_t h[32];
         mbedtls_md_context_t ctx;
@@ -223,8 +253,20 @@ namespace NODE_Utils {
         Utils::println(String("Node-Befehl an ") + NODE_LIST[idx].name + ": " + c.text);
     }
 
-    static void armCmd(int idx) {                                       // der Node hat sein Befehlsfenster geoeffnet
+    static void armCmd(int idx, bool isStart) {                         // der Node hat sein Befehlsfenster geoeffnet
         Cmd &c = cmds[idx];
+        long le;
+        bool wantTime = NODE_LIST[idx].role == 0 && ctrlSecret != "" && localEpoch(le) &&
+                        (isStart || lastTimeSyncMs[idx] == 0 || millis() - lastTimeSyncMs[idx] > 20UL * 3600UL * 1000UL);
+        if (wantTime && !(c.active && c.stage == 1)) {                  // Uhrzeit voranstellen (zusammen mit einem vorgemerkten Befehl)
+            if (!c.active) { memset(&c, 0, sizeof(Cmd)); c.active = true; c.autoOnly = true; }
+            if (c.stage == 0 && strstr(c.text, "TIME=") == nullptr) {
+                char tmp[112];
+                snprintf(tmp, sizeof(tmp), "TIME=%ld%s%s", le, c.text[0] ? "," : "", c.text);
+                snprintf(c.text, sizeof(c.text), "%s", tmp);
+            }
+            lastTimeSyncMs[idx] = millis() ? millis() : 1;
+        }
         if (!c.active || c.stage != 0) return;
         c.stage = 1;
         c.tries = 0;
@@ -278,7 +320,7 @@ namespace NODE_Utils {
         }
 
         // Befehlsfenster: der Node hat gerade gemeldet (Start/Status) und hoert jetzt eine Weile zu
-        if (text.startsWith("Start") || text.startsWith("Status")) armCmd(idx);
+        if (text.startsWith("Start") || text.startsWith("Status")) armCmd(idx, text.startsWith("Start"));
 
         // Welche Meldung geht nach Telegram, braucht sie eine Bestaetigung erst NACH der Zustellung?
         bool needTg = false;                    // Telegram Pflicht -> ACK erst nach Zustellung
@@ -338,15 +380,15 @@ namespace NODE_Utils {
             if (en.state == ST_DONE && !en.acked) {
                 en.acked = true;
                 sendAck(en.sender, en.payload);
-                if (en.armAfterAck) armCmd(en.node);                                          // der Node oeffnet nach dem ACK sein Befehlsfenster
+                if (en.armAfterAck) armCmd(en.node, false);                                          // der Node oeffnet nach dem ACK sein Befehlsfenster
             }
         }
         for (size_t i = 0; i < NODE_COUNT; i++) {                                             // Befehle zustellen / aufgeben
             Cmd &c = cmds[i];
             if (!c.active || c.stage != 1) continue;
-            if (c.tries >= 4 && now >= c.nextMs) { c.active = false; tgQueueText(String("Befehl an ") + NODE_LIST[i].name + " nicht bestaetigt: " + c.text, 1); }
+            if (c.tries >= 4 && now >= c.nextMs) { c.active = false; if (!c.autoOnly) tgQueueText(String("Befehl an ") + NODE_LIST[i].name + " nicht bestaetigt: " + c.text, 1); }
             else if (c.tries < 4 && now >= c.nextMs) sendCmdNow((int)i);
-            else if (now > c.untilMs) { c.active = false; tgQueueText(String("Befehl an ") + NODE_LIST[i].name + " nicht bestaetigt: " + c.text, 1); }
+            else if (now > c.untilMs) { c.active = false; if (!c.autoOnly) tgQueueText(String("Befehl an ") + NODE_LIST[i].name + " nicht bestaetigt: " + c.text, 1); }
         }
     }
 
@@ -405,7 +447,7 @@ namespace NODE_Utils {
 
         h += "<hr><h3>Befehl an einen Node</h3>";
         h += "<p style='font-size:13px'>Wird nach der n&auml;chsten Start-/Status-/Post-Meldung des Nodes in dessen Befehlsfenster gesendet. "
-             "Briefkasten: <code>TX=6</code> <code>CHK=5</code> <code>ST=1440</code> <code>REM=0</code> <code>WIN=60</code> <code>TEST</code> <code>TEST=300</code> <code>DEF</code> <code>?</code> &ndash; mehrere mit Leerzeichen trennen.</p>";
+             "Briefkasten: <code>TX=6</code> <code>CHK=5</code> <code>ST=360</code> <code>STE=30</code> <code>NS=22</code> <code>NE=6</code> <code>RE=10</code> <code>EV=19</code> <code>SCH=1</code> <code>REM=0</code> <code>WIN=60</code> <code>TEST</code> <code>TEST=300</code> <code>DEF</code> <code>?</code> &ndash; mehrere mit Leerzeichen trennen.</p>";
         for (size_t i = 0; i < NODE_COUNT; i++) {
             if (cmds[i].active) h += String("<p>Vorgemerkt f&uuml;r ") + NODE_LIST[i].name + ": <code>" + esc(String(cmds[i].text)) + "</code>" + (cmds[i].stage == 1 ? " (wird gesendet)" : " (wartet)") + "</p>";
         }
@@ -426,6 +468,7 @@ namespace NODE_Utils {
         loadCredentials();
         memset((void *)entries, 0, sizeof(entries));
         memset((void *)cmds, 0, sizeof(cmds));
+        memset((void *)lastTimeSyncMs, 0, sizeof(lastTimeSyncMs));
         tgQueue = xQueueCreate(6, sizeof(TgItem));
         xTaskCreate(tgTask, "nodetg", 12288, nullptr, 1, nullptr);
     }
