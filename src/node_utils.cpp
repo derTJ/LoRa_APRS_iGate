@@ -359,6 +359,7 @@ namespace NODE_Utils {
         uint32_t h = fnv(String(node->call) + "|" + text);
         int e = findEntry(h);
         if (e >= 0) {
+            if (needTg) tgNote("%.20s: Wiederholung, Status %d", node->name, (int)entries[e].state);
             payload.toCharArray(entries[e].payload, sizeof(entries[e].payload));
             if (entries[e].state == ST_DONE) { if (wantAck) sendAck(entries[e].sender, entries[e].payload); }     // erneut bestaetigen (ACK kann verloren gegangen sein)
             else if (entries[e].state == ST_FAILED && needTg) { entries[e].state = ST_PENDING; entries[e].acked = false; tgQueueText(tgText, chats, e); }   // nochmal versuchen
@@ -366,6 +367,7 @@ namespace NODE_Utils {
         }
 
         Utils::println(String("Node ") + node->name + ": " + text);
+        tgNote("%.20s: %.40s -> %s", node->name, text.c_str(), needTg ? "Telegram (ACK danach)" : (chats ? "Telegram" : "nicht weitergeleitet"));
         e = allocEntry();
         Entry &en = entries[e];
         en.hash = h;
