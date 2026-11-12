@@ -17,6 +17,7 @@
  */
 
 #include <ArduinoJson.h>
+#include "node_utils.h"
 #include "network_manager.h"
 #include "configuration.h"
 #include "lora_utils.h"
@@ -460,6 +461,7 @@ namespace WEB_Utils {
             server.on("/aprs-symbols-24-2.png", HTTP_GET, handleAprsSymbols24Overlay);
 
             OTA_Utils::setup(&server); // Include OTA Updater for WebServer
+            NODE_Utils::registerWeb(&server);   // DL6TJ: /telegram
 
             server.onNotFound(handleNotFound);
 

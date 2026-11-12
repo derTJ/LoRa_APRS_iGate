@@ -60,6 +60,7 @@ ___________________________________________________________________*/
 #include "gps_utils.h"
 #include "web_utils.h"
 #include "tnc_utils.h"
+#include "node_utils.h"
 #include "ntp_utils.h"
 #include "wx_utils.h"
 #include "display.h"
@@ -126,6 +127,7 @@ void setup() {
     WEB_Utils::setup();
     TNC_Utils::setup();
     MQTT_Utils::setup();
+    NODE_Utils::setup();      // DL6TJ: Node-Meldungen -> Telegram
     #ifdef HAS_A7670
         A7670_Utils::setup();
     #endif
@@ -199,6 +201,8 @@ void loop() {
         }
 
         if (packet != "") {
+            NODE_Utils::processLoRaPacket(packet);  // DL6TJ: Meldungen eigener Nodes (ACK + Telegram)
+
             if (Config.aprs_is.active) {    // If APRSIS enabled
                 APRS_IS_Utils::processLoRaPacket(packet); // Send received packet to APRSIS
             }
