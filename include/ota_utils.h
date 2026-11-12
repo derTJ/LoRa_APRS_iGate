@@ -26,6 +26,7 @@
 namespace OTA_Utils {
 
     void setup(AsyncWebServer *server);
+    void loop();                       // ArduinoOTA (Port 3232)
     void onOTAStart();
     void onOTAProgress(size_t current, size_t final);
     void onOTAEnd(bool success);

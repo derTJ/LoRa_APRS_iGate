@@ -18,6 +18,9 @@
 
 #include <ESPAsyncWebServer.h>
 #include <ElegantOTA.h>
+#include <ArduinoOTA.h>
+#include <WiFi.h>
+#include <ESPmDNS.h>
 #include <AsyncTCP.h>
 #include "configuration.h"
 #include "ota_utils.h"
@@ -44,6 +47,36 @@ namespace OTA_Utils {
         ElegantOTA.onStart(onOTAStart);
         ElegantOTA.onProgress(onOTAProgress);
         ElegantOTA.onEnd(onOTAEnd);
+    }
+
+    // DL6TJ: Upload per Arduino-IDE / espota (Port 3232) zusaetzlich zur Webseite /update.
+    // Passwort = OTA-Passwort der Konfiguration (leer = ohne). Wird gestartet, sobald das WLAN verbunden ist.
+    static bool arduinoOtaStarted = false;
+
+    void loop() {
+        if (!arduinoOtaStarted) {
+            if (WiFi.status() != WL_CONNECTED) return;
+            arduinoOtaStarted = true;
+            String host = "igate-" + Config.callsign;
+            host.toLowerCase();
+            MDNS.begin(host.c_str());                                   // schlaegt harmlos fehl, wenn der TNC-Teil mDNS schon gestartet hat
+            MDNS.enableArduino(3232, Config.ota.password != "");        // Eintrag unter "Netzwerkports" der Arduino-IDE
+            ArduinoOTA.setHostname(host.c_str());
+            ArduinoOTA.setPort(3232);
+            if (Config.ota.password != "") ArduinoOTA.setPassword(Config.ota.password.c_str());
+            ArduinoOTA.onStart([]() { onOTAStart(); });
+            ArduinoOTA.onProgress([](unsigned int done, unsigned int total) { if (total) onOTAProgress(done, total); });
+            ArduinoOTA.onEnd([]() { onOTAEnd(true); });
+            ArduinoOTA.onError([](ota_error_t e) { Serial.printf("ArduinoOTA Fehler %d\n", (int)e); onOTAEnd(false); });
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+            ArduinoOTA.setMdnsEnabled(false);   // mDNS-Eintrag macht oben MDNS.enableArduino()
+            ArduinoOTA.begin();
+#else
+            ArduinoOTA.begin(false);
+#endif
+            Serial.println("ArduinoOTA bereit (Port 3232)");
+        }
+        ArduinoOTA.handle();
     }
 
     void onOTAStart() {
