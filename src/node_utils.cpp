@@ -112,7 +112,7 @@ namespace NODE_Utils {
         if (https.begin(client, url)) {
             int code = https.GET();
             ok = (code == 200);
-            if (!ok) tgNote("HTTP %d (Chat %s)", code, chat.c_str());
+            if (!ok) tgNote("HTTP %d (Chat %s), Block %u", code, chat.c_str(), (unsigned)ESP.getMaxAllocHeap());
             https.end();
         }
         else tgNote("Verbindung zu Telegram nicht moeglich");
@@ -133,7 +133,7 @@ namespace NODE_Utils {
             for (int tries = 0; tries < 3 && !(d1 && d2); tries++) {
                 if (tries > 0) vTaskDelay(pdMS_TO_TICKS(8000));
                 if (WiFi.status() != WL_CONNECTED) { tgNote("kein WLAN"); continue; }
-                if (ESP.getMaxAllocHeap() < 50000) { tgNote("zu wenig Speicher (groesster Block %u B)", (unsigned)ESP.getMaxAllocHeap()); continue; }
+                if (ESP.getMaxAllocHeap() < NODE_TG_MIN_BLOCK) { tgNote("zu wenig Speicher (Block %u B, min %u)", (unsigned)ESP.getMaxAllocHeap(), (unsigned)NODE_TG_MIN_BLOCK); continue; }
                 if (!d1) d1 = tgSendOne(tgChat1, text, true);
                 if (!d2) d2 = tgSendOne(tgChat2, text, false);
             }
@@ -462,7 +462,7 @@ namespace NODE_Utils {
         h += "<div class='pn'><h3>Telegram f&uuml;r Node-Meldungen</h3>";
         if (msg != "") h += "<p><b style='color:var(--msh-accent)'>" + msg + "</b></p>";
         h += "<p>Bot-Token: " + String(tgToken != "" ? "gesetzt" : "<i>nicht gesetzt</i>") + "<br>Chat 1: " + (tgChat1 != "" ? esc(tgChat1) : String("<i>nicht gesetzt</i>")) + "<br>Chat 2: " + (tgChat2 != "" ? esc(tgChat2) : String("<i>nicht gesetzt</i>")) + "</p>";
-        h += "<p class='dim'>Freier Speicher: gr&ouml;&szlig;ter Block " + String((unsigned)ESP.getMaxAllocHeap()) + " B (Telegram braucht &gt; 50000), WLAN: " + String(WiFi.status() == WL_CONNECTED ? "verbunden" : "getrennt") + "</p>";
+        h += "<p class='dim'>Freier Speicher: gr&ouml;&szlig;ter Block " + String((unsigned)ESP.getMaxAllocHeap()) + " B (Telegram versucht es ab " + String((unsigned)NODE_TG_MIN_BLOCK) + "), WLAN: " + String(WiFi.status() == WL_CONNECTED ? "verbunden" : "getrennt") + "</p>";
         h += "<p class='dim'>Letzte Versuche:<br>";
         for (int k = 0; k < 6; k++) { int ix = (int)tgLogN - 1 - k; if (ix < 0) break; h += esc(String(tgLog[ix % 6])) + "<br>"; }
         if (tgLogN == 0) h += "<i>noch nichts versucht</i>";

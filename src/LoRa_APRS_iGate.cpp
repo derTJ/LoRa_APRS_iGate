@@ -59,7 +59,6 @@ ___________________________________________________________________*/
 #include "digi_utils.h"
 #include "gps_utils.h"
 #include "web_utils.h"
-#include "ota_utils.h"
 #include "tnc_utils.h"
 #include "node_utils.h"
 #include "ntp_utils.h"
@@ -149,7 +148,6 @@ void loop() {
         SLEEP_Utils::startSleeping();
     } else {
         networkManager->loop();
-        OTA_Utils::loop();                  // DL6TJ: ArduinoOTA
 
         if (isUpdatingOTA) {
             ElegantOTA.loop();

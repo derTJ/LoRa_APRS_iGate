@@ -19,4 +19,10 @@ static const NodeDef NODE_LIST[] = {
 #define NODE_TZ_EU_DST          true
 #define NODE_DEDUP_S            600     // gleiche Meldung (Absender + Text + Nachrichtennummer) innerhalb dieser Zeit nur einmal weiterleiten
 
+// Kleinster zusammenhaengender Heap-Block (Bytes), ab dem ein Telegram-Versuch gestartet wird. TLS braucht je nach Zustand ca. 30-45 kB;
+// bei zu wenig Speicher scheitert der Versuch harmlos (Fehlermeldung statt Absturz), der Node wiederholt ja.
+#ifndef NODE_TG_MIN_BLOCK
+#define NODE_TG_MIN_BLOCK 30000
+#endif
+
 #endif
