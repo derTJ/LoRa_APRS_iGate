@@ -41,7 +41,30 @@ extern String           seventhLine;
 extern bool             backupDigiMode;
 
 
+// ---- DL6TJ: Ballon-/Sonden-Ausnahme --------------------------------------
+// Pakete OHNE Pfad werden normalerweise nicht wiederholt. Ausnahme:
+// Hoehe /A= (Fuss) >= BALLOON_MIN_ALT_FT, unabhaengig vom Rufzeichen.
+#define BALLOON_DIGI_ENABLE   true
+#define BALLOON_MIN_ALT_FT    500
+
 namespace DIGI_Utils {
+
+    static bool balloonAltOk(const String& packet) {
+        int a = packet.indexOf("/A=");
+        if (a < 0) return false;
+        long ft = packet.substring(a + 3, a + 9).toInt();
+        return ft >= BALLOON_MIN_ALT_FT;
+    }
+
+    // Paket ohne Pfad: "SRC>DST:payload" -> "SRC>DST,DIGI*:payload"
+    static String buildBalloonPacket(const String& packet) {
+        int colon = packet.indexOf(':');
+        if (colon < 3) return "";
+        String stationCallsign = (Config.tacticalCallsign == "" ? Config.callsign : Config.tacticalCallsign);
+        String out = packet.substring(0, colon) + "," + stationCallsign + "*";
+        out += APRSPacketLib::checkForStartingBytes(packet.substring(colon));
+        return out;
+    }
 
     String cleanPath(const String& path) {
         String result;
@@ -184,6 +207,12 @@ namespace DIGI_Utils {
                 return "";
             }
             return "";
+        }
+
+        if (BALLOON_DIGI_ENABLE && commaIndex == -1 && lastAprsPacket.header == "" && digiMode != 3) {
+            if (balloonAltOk(packet)) {
+                return buildBalloonPacket(packet);
+            }
         }
 
         if (commaIndex == -1 && (digiMode == 1 || backupDigiMode || digiMode == 2) && crossFreq) return buildPacket("", packet, true);  // no "path" but is CrossFreq Digi
